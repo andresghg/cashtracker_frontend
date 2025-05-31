@@ -15,40 +15,57 @@ export async function authenticate(prevState: ActionStateType, formData: FormDat
     }
 
     const auth = LoginSchema.safeParse(loginCredentials)
-    if(!auth.success) {
+    if (!auth.success) {
         const errors = auth.error.errors.map(error => error.message)
-        return {
-            errors
-        }
+        return { errors }
     }
 
     const url = `${process.env.API_URL}/auth/login`
-    const req = await fetch(url, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-            email: auth.data.email,
-            password: auth.data.password
+
+    try {
+        const req = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                email: auth.data.email,
+                password: auth.data.password
+            })
         })
-    })
-    const json = await req.json()
 
-    if(!req.ok) {
-        const { error } = ErrorResponseSchema.parse(json)
-        return {
-            errors: [error]
+        const contentType = req.headers.get("content-type") || ""
+
+        if (!req.ok) {
+            if (!contentType.includes("application/json")) {
+                const text = await req.text()
+                console.error("Respuesta no JSON:", text)
+                return { errors: ["Error inesperado del servidor."] }
+            }
+
+            const json = await req.json()
+            const { error } = ErrorResponseSchema.parse(json)
+            return { errors: [error] }
         }
+
+        const json = await req.json()
+
+        if (!json.token || typeof json.token !== "string") {
+            return { errors: ["Token inválido en la respuesta."] }
+        }
+
+        // Setear Cookies
+        (await cookies()).set({
+            name: 'CASHTRACKER_TOKEN',
+            value: json.token,
+            httpOnly: true,
+            path: '/',
+        })
+
+        redirect('/admin')
+
+    } catch (err) {
+        console.error("Error de conexión:", err)
+        return { errors: ["No se pudo conectar con el servidor."] }
     }
-
-    // Setear Cookies
-    (await cookies()).set({
-        name: 'CASHTRACKER_TOKEN',
-        value: json,
-        httpOnly: true,
-        path: '/',
-    })
-
-    redirect('/admin')
 }
